@@ -32,10 +32,10 @@ def create_sales_followup_agent() -> LlmAgent:
         model=LiteLlm(model=model_name),
         instruction=SALES_FOLLOWUP_INSTRUCTION,
         tools=[
-            FunctionTool(fn=get_lead_context),
-            FunctionTool(fn=create_followup_task),
-            FunctionTool(fn=list_followup_tasks),
-            FunctionTool(fn=update_task_status),
+            FunctionTool(func=get_lead_context),
+            FunctionTool(func=create_followup_task),
+            FunctionTool(func=list_followup_tasks),
+            FunctionTool(func=update_task_status),
         ],
     )
 
