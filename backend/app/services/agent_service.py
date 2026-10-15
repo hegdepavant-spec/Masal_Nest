@@ -7,33 +7,30 @@ and Google ADK. It handles:
 - Running agents and collecting responses
 - Parsing structured output from the Lead Intelligence Agent
 - Error handling for AI failures
+
+Heavy ADK, GenAI, and LiteLLM imports are deferred to first invocation so
+that application startup does not load these libraries into memory.
 """
+
+from __future__ import annotations
 
 import json
 import logging
 import re
 import uuid
+from typing import TYPE_CHECKING
 
-from google.adk.agents import LlmAgent
-from google.adk.runners import Runner
-from google.adk.sessions import InMemorySessionService
-from google.genai import types
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agents.lead_intelligence import create_lead_intelligence_agent
-from app.agents.sales_followup import create_sales_followup_agent
-from app.agents.prompts import (
-    LEAD_INTELLIGENCE_INSTRUCTION,
-    SALES_FOLLOWUP_INSTRUCTION,
-    CALL_BRIEF_INSTRUCTION,
-    INTERACTION_EXTRACTION_PROMPT,
-)
-from app.agents import tools as agent_tools
 from app.core.config import get_settings
 from app.core.exceptions import AIServiceError, AITimeoutError, AIRateLimitError, AIAuthError
 from app.db.models import Lead, LeadAnalysis
 from app.db.repositories.analysis_repo import AnalysisRepository
 from app.schemas.analysis import LeadAnalysisResult
+
+if TYPE_CHECKING:
+    # Only imported for type hints — not executed at runtime during startup
+    from google.adk.agents import LlmAgent
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +54,9 @@ class AgentService:
         Raises:
             AIServiceError on any AI failure.
         """
+        # Lazy import — only loaded when AI analysis is actually requested
+        from app.agents.prompts import LEAD_INTELLIGENCE_INSTRUCTION
+
         # Format the instruction with lead data
         instruction = LEAD_INTELLIGENCE_INSTRUCTION.format(
             customer_name=lead.customer_name or "Not provided",
@@ -67,6 +67,7 @@ class AgentService:
             customer_message=lead.customer_message or "Not provided",
         )
 
+        from app.agents.lead_intelligence import create_lead_intelligence_agent
         agent = create_lead_intelligence_agent()
         # Override instruction with filled template
         agent.instruction = instruction
@@ -96,10 +97,16 @@ class AgentService:
         Returns:
             The assistant's response text.
         """
+        # Lazy import — only loaded when chat is actually invoked
+        from app.agents.prompts import SALES_FOLLOWUP_INSTRUCTION
+        from app.agents import tools as agent_tools
+
         # Inject DB session into tool functions
         agent_tools.set_db_session(self.db)
 
         instruction = SALES_FOLLOWUP_INSTRUCTION.format(lead_id=lead_id)
+
+        from app.agents.sales_followup import create_sales_followup_agent
         agent = create_sales_followup_agent()
         agent.instruction = instruction
 
@@ -130,6 +137,9 @@ class AgentService:
         Uses the Lead Intelligence Agent (no tools needed) with
         the call brief prompt template.
         """
+        # Lazy import — only loaded when a brief is actually requested
+        from app.agents.prompts import CALL_BRIEF_INSTRUCTION
+
         # Get latest analysis
         analysis_repo = AnalysisRepository(self.db)
         analysis = await analysis_repo.get_latest_for_lead(lead.id)
@@ -149,6 +159,7 @@ class AgentService:
             recommended_action=analysis.recommended_action if analysis else "Analyze the lead first",
         )
 
+        from app.agents.lead_intelligence import create_lead_intelligence_agent
         agent = create_lead_intelligence_agent()
         agent.instruction = instruction
 
@@ -169,6 +180,7 @@ class AgentService:
         """Extract proposed customer updates and suggested next task from interaction notes."""
         from litellm import acompletion
         from app.schemas.leads import InteractionExtractResponse
+        from app.agents.prompts import INTERACTION_EXTRACTION_PROMPT
 
         prompt = INTERACTION_EXTRACTION_PROMPT.format(
             customer_name=lead.customer_name or "Not provided",
@@ -224,7 +236,7 @@ class AgentService:
 
     async def _run_agent(
         self,
-        agent: LlmAgent,
+        agent: "LlmAgent",
         user_message: str,
         session_prefix: str,
     ) -> str:
@@ -234,6 +246,11 @@ class AgentService:
         Correctly distinguishes tool-call events, tool results, intermediate assistant
         events, and the completed final assistant response.
         """
+        # Lazy imports — only executed when an agent is actually run
+        from google.adk.runners import Runner
+        from google.adk.sessions import InMemorySessionService
+        from google.genai import types
+
         session_service = InMemorySessionService()
 
         runner = Runner(
@@ -391,4 +408,3 @@ def clean_assistant_response(text: str) -> str:
 
     result = "\n".join(cleaned_lines).strip()
     return result if result else text.strip()
-

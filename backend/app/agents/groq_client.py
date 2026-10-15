@@ -4,6 +4,10 @@ Groq's chat completions endpoint rejects proprietary or unexpected fields
 such as `reasoning_content` and `thinking_blocks` in assistant messages.
 This client sanitizes the message sequence before passing to LiteLLM,
 ensures tool calls have corresponding results, and logs outgoing payloads safely.
+
+Note: This module imports google.adk and litellm. It is intentionally imported
+only from within the lazy agent factory functions (lead_intelligence.py and
+sales_followup.py), so these heavy libraries are NOT loaded at application startup.
 """
 
 import copy

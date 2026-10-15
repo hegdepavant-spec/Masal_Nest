@@ -16,14 +16,14 @@ import logging
 import re
 from typing import Any
 
-from litellm import acompletion
-
-from app.agents.prompts import MARKET_INSIGHTS_PROMPT
 from app.core.config import get_settings
 from app.core.exceptions import AIServiceError, AIAuthError, AITimeoutError, AIRateLimitError
 from app.schemas.market_insights import MarketInsightsRequest, MarketInsightsResponse
 
 logger = logging.getLogger(__name__)
+
+# Module-level placeholder so unit tests can patch acompletion without eagerly loading litellm at startup
+acompletion = None
 
 
 class MarketInsightsService:
@@ -44,6 +44,8 @@ class MarketInsightsService:
         Raises:
             AIServiceError, AIAuthError, AITimeoutError, AIRateLimitError.
         """
+        # Lazy import — deferred so startup does not load prompt strings or litellm
+        from app.agents.prompts import MARKET_INSIGHTS_PROMPT
         prompt = MARKET_INSIGHTS_PROMPT.format(
             locality=req.locality,
             city=req.city,
@@ -63,6 +65,9 @@ class MarketInsightsService:
 
     async def _call_llm(self, messages: list[dict[str, Any]]) -> str:
         """Call LiteLLM directly (no ADK runner needed for simple JSON completion)."""
+        _acompletion = acompletion
+        if _acompletion is None:
+            from litellm import acompletion as _acompletion  # deferred — 111 MB, only loaded on first request
         model = self.settings.resolved_groq_model
         api_key = self.settings.groq_api_key
 
@@ -73,7 +78,7 @@ class MarketInsightsService:
         logger.info("Calling Groq model %s for market insights", model)
 
         try:
-            response = await acompletion(
+            response = await _acompletion(
                 model=model,
                 messages=messages,
                 api_key=api_key,

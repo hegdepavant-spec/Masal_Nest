@@ -36,15 +36,25 @@ class Settings(BaseSettings):
         - postgresql://     → postgresql+asyncpg://
         - postgresql+asyncpg:// already correct, pass through
         - sqlite+aiosqlite:// pass through
+
+        For asyncpg connections the `channel_binding` query param is not
+        supported and must be stripped. `sslmode=require` is preserved so
+        that session.py can move it into connect_args where asyncpg expects it.
         """
         url = self.database_url.strip()
         if url.startswith("postgres://"):
-            return url.replace("postgres://", "postgresql+asyncpg://", 1)
-        if url.startswith("postgresql://"):
-            return url.replace("postgresql://", "postgresql+asyncpg://", 1)
-        if url.startswith("postgresql+asyncpg://"):
-            return url
-        # SQLite and other URLs pass through unchanged
+            url = url.replace("postgres://", "postgresql+asyncpg://", 1)
+        elif url.startswith("postgresql://"):
+            url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+
+        # Strip the channel_binding parameter — not supported by asyncpg
+        if "channel_binding" in url:
+            import re as _re
+            url = _re.sub(r"[&?]channel_binding=[^&]*", "", url)
+            # Clean up orphaned ? or trailing &
+            url = _re.sub(r"\?&", "?", url)
+            url = url.rstrip("?&")
+
         return url
 
     @property

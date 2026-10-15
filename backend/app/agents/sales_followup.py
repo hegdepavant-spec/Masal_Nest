@@ -1,23 +1,11 @@
 """Sales Follow-up Agent — answers questions and manages tasks via tools."""
 
-from google.adk.agents import LlmAgent
-from google.adk.models.lite_llm import LiteLlm
-from google.adk.tools import FunctionTool
+from __future__ import annotations
 
-from app.agents.groq_client import GroqLiteLLMClient
-from app.agents.prompts import SALES_FOLLOWUP_INSTRUCTION
-from app.agents.tools import (
-    get_lead_context,
-    create_followup_task,
-    list_followup_tasks,
-    update_task_status,
-    reschedule_task,
-    resolve_lead,
-)
 from app.core.config import get_settings
 
 
-def create_sales_followup_agent() -> LlmAgent:
+def create_sales_followup_agent():
     """Create and return the Sales Follow-up Agent.
 
     This agent has real database-connected tools for:
@@ -27,7 +15,26 @@ def create_sales_followup_agent() -> LlmAgent:
     - Updating task status
     - Rescheduling tasks
     - Resolving customer leads by name
+
+    ADK and LiteLLM are imported lazily here so they are only loaded
+    when an AI operation is actually triggered (not at application startup).
     """
+    # Lazy imports — google.adk ~27 MB, litellm ~111 MB
+    from google.adk.agents import LlmAgent
+    from google.adk.models.lite_llm import LiteLlm
+    from google.adk.tools import FunctionTool
+
+    from app.agents.groq_client import GroqLiteLLMClient
+    from app.agents.prompts import SALES_FOLLOWUP_INSTRUCTION
+    from app.agents.tools import (
+        get_lead_context,
+        create_followup_task,
+        list_followup_tasks,
+        update_task_status,
+        reschedule_task,
+        resolve_lead,
+    )
+
     settings = get_settings()
     model_name = settings.resolved_groq_model
 
