@@ -36,7 +36,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
-    description="AI-Powered Real-Estate Lead Prioritization & Sales Copilot Backend",
+    description="MasalNest — AI-Powered Real Estate Intelligence & LeadPilot Backend",
     lifespan=lifespan,
 )
 

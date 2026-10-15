@@ -42,6 +42,8 @@ class LeadResponse(BaseModel):
     priority_category: str | None
     followup_status: str
     analysis_stale: bool
+    normalized_timeline: str | None = None
+    latest_analysis: "AnalysisResponse | None" = None
     created_at: datetime
     updated_at: datetime
 
@@ -51,12 +53,47 @@ class LeadResponse(BaseModel):
 class LeadDetailResponse(LeadResponse):
     """Response schema for a lead detail view, includes latest analysis and tasks."""
 
-    latest_analysis: "AnalysisResponse | None" = None
     tasks: list["TaskResponse"] = []
+
+
+class InteractionExtractRequest(BaseModel):
+    """Request to extract updates and next steps from call interaction notes."""
+
+    outcome: str = Field(..., max_length=50, description="Call outcome")
+    notes: str = Field(..., min_length=1, max_length=5000, description="Interaction notes")
+
+
+class ProposedLeadUpdates(BaseModel):
+    """Extracted lead profile fields proposed for salesperson review."""
+
+    location: str | None = None
+    budget: str | None = None
+    buying_timeline: str | None = None
+    property_requirement: str | None = None
+    followup_status: str | None = None
+
+
+class SuggestedTask(BaseModel):
+    """Extracted follow-up task proposed for salesperson review."""
+
+    title: str = Field(..., max_length=255)
+    action_type: str = Field("call", max_length=20)
+    due_in_days: int = Field(1, ge=0, le=90)
+    description: str | None = None
+
+
+class InteractionExtractResponse(BaseModel):
+    """Structured extraction output returned to salesperson for review before committing."""
+
+    proposed_updates: ProposedLeadUpdates
+    suggested_task: SuggestedTask | None = None
+    summary: str
 
 
 # Forward references resolved at end of module
 from app.schemas.analysis import AnalysisResponse  # noqa: E402
 from app.schemas.tasks import TaskResponse  # noqa: E402
 
+LeadResponse.model_rebuild()
 LeadDetailResponse.model_rebuild()
+

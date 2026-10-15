@@ -39,7 +39,7 @@ class LeadRepository:
         sort_by: str = "created_at",
         sort_order: str = "desc",
     ) -> list[Lead]:
-        stmt = select(Lead)
+        stmt = select(Lead).options(selectinload(Lead.analyses))
 
         if search:
             pattern = f"%{search}%"

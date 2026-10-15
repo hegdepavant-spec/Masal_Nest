@@ -1,5 +1,5 @@
 /**
- * Masal AI — Frontend API Client
+ * MasalNest — Frontend API Client
  * Single integration layer for all backend REST endpoints.
  */
 
@@ -90,6 +90,13 @@ export const api = {
       method: 'POST',
     }),
 
+  extractInteraction: (leadId, payload) =>
+    request(`/leads/${leadId}/extract-interaction`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+
   // Chat
   sendChatMessage: (leadId, message) =>
     request(`/leads/${leadId}/chat`, {
@@ -124,4 +131,12 @@ export const api = {
     request(`/tasks/${taskId}`, {
       method: 'DELETE',
     }),
+
+  // Market Insights
+  getMarketInsights: (payload) =>
+    request('/market-insights/analyze', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
 };
+

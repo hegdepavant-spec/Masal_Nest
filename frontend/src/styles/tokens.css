@@ -1,0 +1,156 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+
+  /* ==========================================================================
+     WHITE-FIRST SURFACES (Attio / Linear / Stripe inspired)
+     ========================================================================== */
+  --color-page: #ffffff;
+  --color-surface: #ffffff;
+  --color-surface-subtle: #f8fafc;       /* Slate 50 */
+  --color-surface-elevated: #ffffff;
+  --color-surface-hover: #f1f5f9;        /* Slate 100 */
+  --color-surface-active: #e2e8f0;       /* Slate 200 */
+  --color-surface-selected: #eff6ff;     /* Blue 50 */
+  --color-surface-sidebar: #f8fafc;
+
+  /* ==========================================================================
+     BORDERS & DIVIDERS (Subtle 1px gray borders)
+     ========================================================================== */
+  --color-border-subtle: #f1f5f9;        /* Slate 100 */
+  --color-border: #e2e8f0;               /* Slate 200 */
+  --color-border-strong: #cbd5e1;        /* Slate 300 */
+  --color-border-focus: #2563eb;         /* Blue 600 */
+
+  /* ==========================================================================
+     TYPOGRAPHY & TEXT COLORS
+     ========================================================================== */
+  --color-text-primary: #0f172a;         /* Slate 900 */
+  --color-text-secondary: #475569;       /* Slate 600 */
+  --color-text-muted: #64748b;           /* Slate 500 */
+  --color-text-disabled: #94a3b8;        /* Slate 400 */
+  --color-text-inverse: #ffffff;
+
+  /* Typography Scale */
+  --text-xs: 0.75rem;     /* 12px */
+  --text-sm: 0.8125rem;   /* 13px */
+  --text-base: 0.875rem;  /* 14px */
+  --text-md: 1rem;        /* 16px */
+  --text-lg: 1.125rem;    /* 18px */
+  --text-xl: 1.25rem;     /* 20px */
+  --text-2xl: 1.5rem;     /* 24px */
+  --text-3xl: 1.75rem;    /* 28px */
+
+  /* Tabular Numerals */
+  --tabular-nums: tabular-nums;
+
+  /* ==========================================================================
+     BRAND ACCENT (Restrained Blue)
+     ========================================================================== */
+  --color-accent: #2563eb;               /* Blue 600 */
+  --color-accent-hover: #1d4ed8;         /* Blue 700 */
+  --color-accent-subtle: #eff6ff;        /* Blue 50 */
+  --color-accent-border: #bfdbfe;        /* Blue 200 */
+  --color-accent-text: #1d4ed8;          /* Blue 700 */
+  --color-focus-ring: rgba(37, 99, 235, 0.2);
+
+  /* Legacy brand aliases for backward compatibility */
+  --brand-primary: var(--color-accent);
+  --brand-hover: var(--color-accent-hover);
+  --brand-subtle: var(--color-accent-subtle);
+  --brand-glow: var(--color-focus-ring);
+
+  /* ==========================================================================
+     SEMANTIC STATUS & LEAD PRIORITY (Restrained, high-contrast)
+     ========================================================================== */
+  /* Hot */
+  --color-hot: #dc2626;
+  --color-hot-bg: #fef2f2;
+  --color-hot-border: #fecaca;
+  --color-hot-text: #991b1b;
+
+  /* Warm */
+  --color-warm: #d97706;
+  --color-warm-bg: #fffbeb;
+  --color-warm-border: #fde68a;
+  --color-warm-text: #92400e;
+
+  /* Cold */
+  --color-cold: #475569;
+  --color-cold-bg: #f8fafc;
+  --color-cold-border: #e2e8f0;
+  --color-cold-text: #334155;
+
+  /* Unscored */
+  --color-unscored: #64748b;
+  --color-unscored-bg: #f8fafc;
+  --color-unscored-border: #e2e8f0;
+  --color-unscored-text: #475569;
+
+  /* Stale Analysis */
+  --color-stale: #d97706;
+  --color-stale-bg: #fffbeb;
+  --color-stale-border: #fde68a;
+  --color-stale-text: #b45309;
+
+  /* Success */
+  --color-success: #16a34a;
+  --color-success-bg: #f0fdf4;
+  --color-success-border: #bbf7d0;
+  --color-success-text: #166534;
+
+  /* Warning */
+  --color-warning: #d97706;
+  --color-warning-bg: #fffbeb;
+  --color-warning-border: #fde68a;
+  --color-warning-text: #92400e;
+
+  /* Error */
+  --color-error: #dc2626;
+  --color-error-bg: #fef2f2;
+  --color-error-border: #fecaca;
+  --color-error-text: #991b1b;
+
+  /* Info */
+  --color-info: #2563eb;
+  --color-info-bg: #eff6ff;
+  --color-info-border: #bfdbfe;
+  --color-info-text: #1d4ed8;
+
+  /* ==========================================================================
+     SPACING (4px Base Grid)
+     ========================================================================== */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* ==========================================================================
+     BORDER RADII (Restrained 4–8px)
+     ========================================================================== */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-full: 9999px;
+
+  /* ==========================================================================
+     SHADOWS & ELEVATION (Crisp, subtle)
+     ========================================================================== */
+  --shadow-xs: 0 1px 2px 0 rgba(15, 23, 42, 0.05);
+  --shadow-sm: 0 1px 3px 0 rgba(15, 23, 42, 0.08), 0 1px 2px -1px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 4px 6px -1px rgba(15, 23, 42, 0.08), 0 2px 4px -2px rgba(15, 23, 42, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(15, 23, 42, 0.08), 0 4px 6px -4px rgba(15, 23, 42, 0.04);
+  --shadow-modal: 0 20px 25px -5px rgba(15, 23, 42, 0.12), 0 8px 10px -6px rgba(15, 23, 42, 0.08);
+
+  /* Transition Tokens */
+  --transition-fast: 0.12s ease-in-out;
+  --transition-base: 0.18s ease-in-out;
+}

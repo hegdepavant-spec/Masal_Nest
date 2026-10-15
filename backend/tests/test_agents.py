@@ -17,12 +17,14 @@ def test_create_sales_followup_agent():
     """Verify Sales Followup Agent creation and attached FunctionTools."""
     agent = create_sales_followup_agent()
     assert agent.name == "sales_followup_agent"
-    assert len(agent.tools) == 4
+    assert len(agent.tools) == 6
     tool_names = [t.name for t in agent.tools]
     assert "get_lead_context" in tool_names
     assert "create_followup_task" in tool_names
     assert "list_followup_tasks" in tool_names
     assert "update_task_status" in tool_names
+    assert "reschedule_task" in tool_names
+    assert "resolve_lead" in tool_names
 
 
 def test_prompt_formatting():
@@ -55,3 +57,104 @@ def test_prompt_formatting():
         recommended_action="Call today",
     )
     assert "Test Customer" in p3
+
+
+def test_agent_api_key_configured():
+    """Verify both agent factories configure api_key on LiteLlm."""
+    import os
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    lead_agent = create_lead_intelligence_agent()
+    sales_agent = create_sales_followup_agent()
+
+    assert lead_agent.model._additional_args.get("api_key") == settings.groq_api_key
+    assert sales_agent.model._additional_args.get("api_key") == settings.groq_api_key
+    assert os.environ.get("GROQ_API_KEY") == settings.groq_api_key
+    assert "gpt-oss" in lead_agent.model.model.lower()
+
+
+def test_handle_ai_error_redacts_api_key():
+    """Verify _handle_ai_error masks API keys in error messages and maps 401 to AIAuthError."""
+    from app.core.exceptions import AIAuthError, AIServiceError
+    from app.services.agent_service import AgentService
+
+    service = AgentService(db=None)
+
+    # 401 or auth error raises AIAuthError
+    with pytest.raises(AIAuthError):
+        service._handle_ai_error(Exception("401 Unauthorized invalid_api_key"))
+
+    # Generic error with API key in string must have key redacted
+    with pytest.raises(AIServiceError) as exc_info:
+        service._handle_ai_error(Exception("Unexpected failure with gsk_secretKey123456789ABCDEF while connecting"))
+
+    assert "gsk_secretKey123456789ABCDEF" not in str(exc_info.value.message)
+    assert "[REDACTED_API_KEY]" in str(exc_info.value.message)
+
+
+def test_parse_analysis_response_with_thinking_tags():
+    """Verify _parse_analysis_response extracts JSON despite thinking text and markdown blocks."""
+    from app.services.agent_service import AgentService
+
+    service = AgentService(db=None)
+
+    raw_llm_output = (
+        "<thought>\n"
+        "The customer is looking for a 3 BHK in Bangalore with high urgency.\n"
+        "</thought>\n"
+        "```json\n"
+        "{\n"
+        '  "summary": "High urgency 3 BHK seeker",\n'
+        '  "customer_intent": "buying",\n'
+        '  "key_requirements": ["3 BHK", "Indiranagar"],\n'
+        '  "inferred_requirements": [],\n'
+        '  "objections": [],\n'
+        '  "missing_info": [],\n'
+        '  "recommended_action": "Call immediately",\n'
+        '  "suggested_response": "Hello, we have 3 BHK ready.",\n'
+        '  "urgency_signals": ["Immediate"],\n'
+        '  "readiness_signals": ["Pre-approved"],\n'
+        '  "score_explanation": "Great lead"\n'
+        "}\n"
+        "```\n"
+    )
+
+    result = service._parse_analysis_response(raw_llm_output)
+    assert result.customer_intent == "buying"
+    assert result.summary == "High urgency 3 BHK seeker"
+    assert result.key_requirements == ["3 BHK", "Indiranagar"]
+
+
+@pytest.mark.asyncio
+async def test_live_groq_real_call():
+    """Integration test to verify real Groq API connectivity and response format.
+    
+    Can be run when GROQ_API_KEY is configured.
+    """
+    import os
+    from app.core.config import get_settings
+    from app.db.models import Lead
+    from app.services.agent_service import AgentService
+
+    settings = get_settings()
+    if not settings.groq_api_key or settings.groq_api_key.startswith("gsk_placeholder"):
+        pytest.skip("No real GROQ_API_KEY configured")
+
+    lead = Lead(
+        id="test-lead-live",
+        customer_name="Pooja Sharma",
+        location="Indiranagar, Bangalore",
+        property_requirement="3 BHK premium apartment",
+        budget="₹2.5 Cr",
+        buying_timeline="Within 30 days",
+        customer_message="Looking for immediate possession flat in Indiranagar. Budget flexible.",
+    )
+
+    service = AgentService(db=None)
+    result = await service.analyze_lead(lead)
+
+    assert result is not None
+    assert result.summary != ""
+    assert result.customer_intent in ["buying", "renting", "investing", "selling", "browsing"]
+    assert len(result.key_requirements) > 0

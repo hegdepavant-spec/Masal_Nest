@@ -13,4 +13,5 @@ class DashboardMetrics(BaseModel):
     unscored_leads: int = 0
     pending_tasks: int = 0
     overdue_tasks: int = 0
+    due_today_tasks: int = 0
     completed_tasks: int = 0

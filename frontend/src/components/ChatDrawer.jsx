@@ -12,7 +12,7 @@ const QUICK_PROMPTS = [
   'Summarize the key buying signals and timeline urgency.',
 ];
 
-export default function ChatDrawer({ lead, onClose, showToast }) {
+export default function ChatDrawer({ lead, onClose, showToast, onTaskMutated }) {
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState('');
   const [loading, setLoading] = useState(false);
@@ -63,12 +63,16 @@ export default function ChatDrawer({ lead, onClose, showToast }) {
 
     try {
       const res = await api.sendChatMessage(lead.id, text);
+      const assistantMsgData = res.assistant_message || res.message;
       const assistantMessage = {
         role: 'assistant',
-        content: res.message.content,
-        created_at: res.message.created_at,
+        content: assistantMsgData?.content || (typeof res === 'string' ? res : ''),
+        created_at: assistantMsgData?.created_at || new Date().toISOString(),
       };
       setMessages((prev) => [...prev, assistantMessage]);
+      if (onTaskMutated) {
+        onTaskMutated();
+      }
     } catch (err) {
       if (showToast) showToast(err.message, 'error');
       // Append error message in chat stream
@@ -97,65 +101,76 @@ export default function ChatDrawer({ lead, onClose, showToast }) {
   const category = (lead.priority_category || 'unscored').toLowerCase();
 
   return (
-    <div className="drawer-overlay" onClick={onClose}>
+    <div className="drawer-backdrop" onClick={onClose} role="dialog" aria-modal="true">
       <div 
-        className="drawer-content" 
+        className="drawer-panel" 
         onClick={(e) => e.stopPropagation()}
+        style={{
+          width: '100%',
+          maxWidth: 440,
+          backgroundColor: 'var(--color-surface)',
+          borderLeft: '1px solid var(--color-border)',
+          display: 'flex',
+          flexDirection: 'column',
+          height: '100%',
+          boxShadow: 'var(--shadow-modal)',
+        }}
       >
         {/* Header */}
         <div style={{
           padding: '16px 20px',
-          borderBottom: '1px solid var(--border-subtle)',
+          borderBottom: '1px solid var(--color-border)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          background: 'rgba(7, 9, 14, 0.5)',
+          backgroundColor: 'var(--color-surface)',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{
-              width: 36,
-              height: 36,
+              width: 32,
+              height: 32,
               borderRadius: 'var(--radius-sm)',
-              background: 'var(--brand-gradient)',
+              backgroundColor: 'var(--color-accent-subtle)',
+              border: '1px solid var(--color-accent-border)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              boxShadow: '0 0 14px var(--brand-glow)',
+              color: 'var(--color-accent)',
             }}>
-              <Bot size={18} color="#fff" />
+              <Bot size={16} />
             </div>
             <div>
-              <h3 style={{ fontSize: '1.05rem', color: '#fff', fontWeight: 700 }}>
-                Sales Copilot
+              <h3 style={{ fontSize: '1rem', color: 'var(--color-text-primary)', fontWeight: 600 }}>
+                LeadPilot
               </h3>
-              <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                Grounding context: {lead.customer_name}
+              <p style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>
+                AI Sales Assistant · Grounded in lead context
               </p>
             </div>
           </div>
 
-          <button className="btn btn-ghost btn-sm" onClick={onClose} style={{ padding: 6 }}>
-            <X size={18} />
+          <button className="btn btn-ghost btn-xs" onClick={onClose} style={{ padding: 6, color: 'var(--color-text-muted)' }} aria-label="Close drawer">
+            <X size={17} />
           </button>
         </div>
 
         {/* Lead Context Bar */}
         <div style={{
-          padding: '10px 18px',
-          background: 'rgba(255, 255, 255, 0.02)',
-          borderBottom: '1px solid var(--border-subtle)',
+          padding: '9px 18px',
+          backgroundColor: 'var(--color-surface-subtle)',
+          borderBottom: '1px solid var(--color-border)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          fontSize: '0.76rem',
+          fontSize: '0.74rem',
         }}>
-          <div style={{ display: 'flex', gap: 12, color: 'var(--text-secondary)' }}>
+          <div style={{ display: 'flex', gap: 12, color: 'var(--color-text-secondary)' }}>
             <span><strong>Budget:</strong> {lead.budget || 'N/A'}</span>
             <span><strong>Timeline:</strong> {lead.buying_timeline || 'N/A'}</span>
           </div>
-          <span style={{
+          <span className="tabular-nums" style={{
             fontSize: '0.7rem',
-            fontWeight: 700,
+            fontWeight: 600,
             textTransform: 'uppercase',
             color: category === 'hot' ? 'var(--color-hot)' : category === 'warm' ? 'var(--color-warm)' : 'var(--color-cold)',
           }}>
@@ -167,48 +182,53 @@ export default function ChatDrawer({ lead, onClose, showToast }) {
         <div style={{
           flex: 1,
           overflowY: 'auto',
-          padding: '18px 20px',
+          padding: '16px 18px',
           display: 'flex',
           flexDirection: 'column',
-          gap: 14,
+          gap: 12,
         }}>
           {initialLoading ? (
             <div style={{ textAlign: 'center', padding: '40px 0' }}>
-              <RefreshCw size={24} color="var(--brand-primary)" className="animate-spin" />
-              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 8 }}>
+              <RefreshCw size={20} color="var(--color-accent)" className="spinner" />
+              <p style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', marginTop: 8 }}>
                 Loading conversation...
               </p>
             </div>
           ) : messages.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '30px 10px' }}>
-              <Sparkles size={28} color="var(--brand-primary)" style={{ marginBottom: 10 }} />
-              <h4 style={{ fontSize: '0.95rem', color: '#fff', marginBottom: 6 }}>
-                Ground Truth Sales Copilot
+            <div style={{ textAlign: 'center', padding: '20px 10px' }}>
+              <Sparkles size={24} color="var(--color-accent)" style={{ marginBottom: 8 }} />
+              <h4 style={{ fontSize: '0.98rem', color: 'var(--color-text-primary)', marginBottom: 2, fontWeight: 700 }}>
+                LeadPilot
               </h4>
-              <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 16 }}>
-                Ask anything about {lead.customer_name}. The agent queries live SQLite records via ADK tools to answer questions, handle objections, and create follow-up tasks.
+              <p style={{ fontSize: '0.74rem', color: 'var(--color-accent)', fontWeight: 600, marginBottom: 8 }}>
+                Every lead. The right next move.
+              </p>
+              <p style={{ fontSize: '0.78rem', color: 'var(--color-text-secondary)', lineHeight: 1.5, marginBottom: 16 }}>
+                Hey! I'm LeadPilot. I can help you qualify leads, prepare for calls, draft customer messages, and plan your next follow-up.
               </p>
 
               {/* Quick Prompts */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', textAlign: 'left' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', textAlign: 'left', fontWeight: 600 }}>
                   Recommended Questions:
                 </span>
                 {QUICK_PROMPTS.map((prompt, idx) => (
                   <button
                     key={idx}
-                    className="btn btn-secondary btn-sm"
+                    className="btn btn-secondary btn-xs"
                     style={{
                       justifyContent: 'flex-start',
                       textAlign: 'left',
-                      fontSize: '0.78rem',
-                      padding: '8px 12px',
+                      fontSize: '0.75rem',
+                      padding: '7px 10px',
                       whiteSpace: 'normal',
                       lineHeight: 1.3,
+                      color: 'var(--color-text-primary)',
+                      backgroundColor: 'var(--color-surface)',
                     }}
                     onClick={() => handleSend(prompt)}
                   >
-                    <Sparkles size={12} color="var(--brand-primary)" style={{ flexShrink: 0 }} />
+                    <Sparkles size={11} color="var(--color-accent)" style={{ flexShrink: 0 }} />
                     {prompt}
                   </button>
                 ))}
@@ -229,27 +249,26 @@ export default function ChatDrawer({ lead, onClose, showToast }) {
                   <div style={{
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 6,
-                    marginBottom: 4,
-                    fontSize: '0.7rem',
-                    color: 'var(--text-muted)',
+                    gap: 5,
+                    marginBottom: 3,
+                    fontSize: '0.68rem',
+                    color: 'var(--color-text-muted)',
                   }}>
-                    {isUser ? <User size={12} /> : <Bot size={12} color="var(--brand-primary)" />}
-                    <span>{isUser ? 'You' : 'Sales Copilot'}</span>
+                    {isUser ? <User size={11} /> : <Bot size={11} color="var(--color-accent)" />}
+                    <span>{isUser ? 'You' : 'LeadPilot'}</span>
                   </div>
 
                   <div style={{
-                    maxWidth: '88%',
-                    padding: '10px 14px',
-                    borderRadius: isUser ? '14px 14px 2px 14px' : '14px 14px 14px 2px',
-                    background: isUser ? 'var(--brand-gradient)' : 'rgba(255, 255, 255, 0.05)',
-                    border: isUser ? 'none' : '1px solid var(--border-subtle)',
-                    color: '#fff',
-                    fontSize: '0.84rem',
-                    lineHeight: 1.5,
+                    maxWidth: '92%',
+                    padding: '9px 12px',
+                    borderRadius: isUser ? '10px 10px 2px 10px' : '10px 10px 10px 2px',
+                    backgroundColor: isUser ? 'var(--color-accent)' : 'var(--color-surface-subtle)',
+                    border: isUser ? 'none' : '1px solid var(--color-border)',
+                    color: isUser ? '#ffffff' : 'var(--color-text-primary)',
+                    fontSize: '0.8rem',
+                    lineHeight: 1.45,
                     whiteSpace: 'pre-wrap',
                     position: 'relative',
-                    group: 'message',
                   }}>
                     {msg.content}
 
@@ -258,18 +277,18 @@ export default function ChatDrawer({ lead, onClose, showToast }) {
                         onClick={() => handleCopyMessage(msg.content, idx)}
                         style={{
                           position: 'absolute',
-                          top: 6,
-                          right: 6,
-                          background: 'rgba(0,0,0,0.4)',
-                          border: 'none',
-                          borderRadius: 4,
-                          padding: 4,
+                          top: 4,
+                          right: 4,
+                          backgroundColor: 'var(--color-surface)',
+                          border: '1px solid var(--color-border)',
+                          borderRadius: 'var(--radius-xs)',
+                          padding: 3,
                           cursor: 'pointer',
-                          color: 'var(--text-muted)',
+                          color: 'var(--color-text-muted)',
                         }}
                         title="Copy answer"
                       >
-                        {copiedIndex === idx ? <Check size={12} color="#10b981" /> : <Copy size={12} />}
+                        {copiedIndex === idx ? <Check size={11} color="var(--color-success)" /> : <Copy size={11} />}
                       </button>
                     )}
                   </div>
@@ -280,9 +299,9 @@ export default function ChatDrawer({ lead, onClose, showToast }) {
 
           {/* Typing Indicator */}
           {loading && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-muted)', fontSize: '0.78rem' }}>
-              <RefreshCw size={14} className="animate-spin" color="var(--brand-primary)" />
-              <span>Copilot is querying lead database & formulating response...</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--color-text-muted)', fontSize: '0.74rem' }}>
+              <RefreshCw size={12} className="spinner" />
+              <span>LeadPilot is reviewing lead context & formulating response...</span>
             </div>
           )}
 
@@ -296,29 +315,29 @@ export default function ChatDrawer({ lead, onClose, showToast }) {
             handleSend();
           }}
           style={{
-            padding: '14px 18px',
-            borderTop: '1px solid var(--border-subtle)',
-            background: 'rgba(7, 9, 14, 0.6)',
+            padding: '12px 16px',
+            borderTop: '1px solid var(--color-border)',
+            backgroundColor: 'var(--color-surface)',
             display: 'flex',
             gap: 8,
           }}
         >
           <input
             type="text"
-            className="input"
-            placeholder={`Ask about ${lead.customer_name}...`}
+            className="form-input"
+            placeholder={`Ask LeadPilot about ${lead.customer_name}...`}
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             disabled={loading}
-            style={{ fontSize: '0.84rem' }}
+            style={{ fontSize: '0.82rem' }}
           />
           <button
             type="submit"
-            className="btn btn-primary"
+            className="btn btn-primary btn-sm"
             disabled={!inputValue.trim() || loading}
-            style={{ padding: '8px 14px' }}
+            style={{ padding: '8px 12px' }}
           >
-            <Send size={15} />
+            <Send size={14} />
           </button>
         </form>
       </div>

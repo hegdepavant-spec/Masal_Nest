@@ -3,34 +3,47 @@
 import asyncio
 from datetime import date, timedelta
 import json
+import sys
+from typing import Any
+
+# Configure UTF-8 encoding on Windows to avoid UnicodeEncodeError with currency symbols (e.g. ₹)
+if sys.platform == "win32":
+    try:
+        if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+            getattr(sys.stdout, "reconfigure")(encoding="utf-8")
+        if sys.stderr and hasattr(sys.stderr, "reconfigure"):
+            getattr(sys.stderr, "reconfigure")(encoding="utf-8")
+    except Exception:
+        pass
 
 from app.db.models import Lead, LeadAnalysis, FollowupTask, ChatMessage
 from app.db.session import async_session_factory, init_db
 
 
-SAMPLE_LEADS = [
+SAMPLE_LEADS: list[dict[str, Any]] = [
     {
         "customer_name": "Arjun Sharma",
         "location": "Whitefield, Bangalore",
         "property_requirement": "4 BHK luxury villa with private garden, gated community",
         "budget": "₹3.5 - 4.5 Cr",
-        "buying_timeline": "immediate (within 30 days)",
-        "customer_message": "Looking to relocate from Singapore by next month. Pre-approved for bank loan, budget ready. Need possession-ready or under 3-month handover. Please arrange site visits this weekend if possible.",
-        "priority_score": 92,
+        "buying_timeline": "Within 1 month (relocation); 3-month handover limit",
+        "customer_message": "Looking to relocate from Singapore by next month. Pre-approved for bank loan, budget ready. Must have possession within a strict 3-month (30-day) handover window; cannot consider properties with longer delivery timelines. Please arrange site visits this weekend if possible.",
+        "priority_score": 85,
         "priority_category": "hot",
         "followup_status": "in_progress",
         "analysis": {
-            "summary": "High-urgency NRI relocating within 30 days. Pre-approved loan and ready budget for 4 BHK luxury villa in Whitefield.",
+            "summary": "High-intent NRI relocating from Singapore next month. Pre-approved loan and ready budget for 4 BHK luxury villa in Whitefield with a strict 3-month possession deadline.",
             "customer_intent": "buying",
-            "key_requirements": ["4 BHK luxury villa", "Private garden", "Gated community", "Within 30-day timeline", "Whitefield location"],
+            "key_requirements": ["4 BHK luxury villa", "Private garden", "Gated community", "Whitefield location"],
+            "hard_constraints": ["Must have possession within 3 months (~90 days); cannot consider properties with longer delivery timelines"],
             "inferred_requirements": ["High-end amenities", "Good security for NRI family", "Close to international schools"],
-            "objections": ["Strict 3-month handover limit"],
-            "missing_info": ["Preferred plot size", "Vastu orientation preference"],
-            "recommended_action": "Schedule high-priority weekend site visit and send 3 ready-to-move villa options immediately.",
-            "suggested_response": "Hi Arjun, welcome back to Bangalore! We have 2 premium ready-to-move 4 BHK villas in prime Whitefield matching your ₹4 Cr budget. Can we schedule a private tour this Saturday at 11 AM?",
-            "urgency_signals": ["Relocating next month", "Site visit requested this weekend", "Pre-approved loan"],
+            "objections": [],
+            "missing_info": ["Preferred plot size", "Vastu orientation preference", "Verify 30-day notation in handover statement"],
+            "recommended_action": "Schedule high-priority weekend site visit and send 3 ready-to-move villa options matching under-90-day possession limit.",
+            "suggested_response": "Hi Arjun, welcome back to Bangalore! We have 2 premium ready-to-move 4 BHK villas in prime Whitefield matching your ₹4 Cr budget and 3-month handover requirement. Can we schedule a private tour this Saturday at 11 AM?",
+            "urgency_signals": ["Relocating next month", "Site visit requested this weekend"],
             "readiness_signals": ["Pre-approved bank loan", "Budget explicitly defined", "Ready to purchase immediately"],
-            "score_explanation": "Maximum urgency score due to 30-day timeline; pre-approved financing and clear luxury requirements qualify this as a Top Hot Lead.",
+            "score_explanation": "Score 85/100 (Hot). Declared intent: buying (25/25 pts); Timeline: relocating next month / purchase within 30 days (20/25 pts); Clear ₹4 Cr budget & luxury villa specs (20/20 pts); Weekend site visit & pre-approved loan (16/20 pts); Operational 3-month handover constraint specified (5/10 pts).",
         },
         "tasks": [
             {
@@ -52,7 +65,7 @@ SAMPLE_LEADS = [
         ],
         "chats": [
             {"role": "user", "content": "What are the best ready villas in Whitefield for Arjun?"},
-            {"role": "assistant", "content": "Based on Arjun's ₹3.5-4.5 Cr budget and 30-day timeline, Prestige Golfshire and Raffles Park are prime options. Prestige offers ready possession with private gardens matching his exact request."},
+            {"role": "assistant", "content": "Based on Arjun's ₹3.5-4.5 Cr budget and under-90-day possession requirement, Prestige Golfshire and Raffles Park are prime options. Both offer ready possession with private gardens matching his exact request."},
         ],
     },
     {
@@ -62,21 +75,22 @@ SAMPLE_LEADS = [
         "budget": "₹7 - 8 Cr",
         "buying_timeline": "2-3 months",
         "customer_message": "Looking to upgrade from our 2 BHK. Need sea-facing view, modern club amenities, and 2 designated car parks. We are actively touring properties but finalizing in Q2.",
-        "priority_score": 78,
-        "priority_category": "hot",
+        "priority_score": 64,
+        "priority_category": "warm",
         "followup_status": "in_progress",
         "analysis": {
             "summary": "Active home upgrader seeking 3 BHK sea-view residence in Bandra West with 2-3 month decision window.",
             "customer_intent": "buying",
             "key_requirements": ["3 BHK sea view", "Bandra West", "2 car parking spots", "Modern amenities"],
+            "hard_constraints": ["Sea-facing view required", "2 designated car parks"],
             "inferred_requirements": ["High floor preferred for unobstructed view", "Reputable A-grade builder"],
-            "objections": ["High price per sqft in Bandra West"],
+            "objections": [],
             "missing_info": ["Financing type (all-equity vs home loan)"],
             "recommended_action": "Share curated sea-facing listings on Carter Road and Bandstand.",
             "suggested_response": "Hello Priyanka, we have an exclusive sea-facing 3 BHK on Carter Road with panoramic Arabian Sea views and 2 covered parkings within your budget. Would you like a video walkthrough?",
             "urgency_signals": ["Actively touring properties", "Targeting Q2 finalization"],
             "readiness_signals": ["Clear budget bracket", "Specific location criteria"],
-            "score_explanation": "Strong purchase intent with realistic budget for Bandra West; 2-3 month timeline places this solidly in the Hot category.",
+            "score_explanation": "Score 64/100 (Warm). Declared intent: buying (20/25 pts); Timeline: 2-3 months / Q2 (10/25 pts); Specified ₹7-8 Cr budget & sea-view specs (20/20 pts); Active touring (10/20 pts); Sea-facing view constraint (5/10 pts).",
         },
         "tasks": [
             {
@@ -194,50 +208,174 @@ SAMPLE_LEADS = [
 ]
 
 
+from sqlalchemy import select
+
+
+async def cleanup_duplicate_seed_data(session) -> None:
+    """Safely consolidate duplicate seed leads created by repeated seed runs."""
+    sample_names = {lead["customer_name"] for lead in SAMPLE_LEADS}
+    for name in sample_names:
+        stmt = select(Lead).where(Lead.customer_name == name).order_by(Lead.created_at.asc())
+        leads = (await session.execute(stmt)).scalars().all()
+        if len(leads) <= 1:
+            continue
+
+        # Keep primary lead (earliest)
+        primary = leads[0]
+        duplicates = leads[1:]
+
+        for dup in duplicates:
+            # Re-associate tasks to primary if not duplicate
+            task_stmt = select(FollowupTask).where(FollowupTask.lead_id == dup.id)
+            dup_tasks = (await session.execute(task_stmt)).scalars().all()
+            for dt in dup_tasks:
+                existing = (
+                    await session.execute(
+                        select(FollowupTask).where(
+                            FollowupTask.lead_id == primary.id,
+                            FollowupTask.title == dt.title,
+                        )
+                    )
+                ).scalars().first()
+                if not existing:
+                    dt.lead_id = primary.id
+                else:
+                    await session.delete(dt)
+
+            # Re-associate chats to primary if not duplicate
+            chat_stmt = select(ChatMessage).where(ChatMessage.lead_id == dup.id)
+            dup_chats = (await session.execute(chat_stmt)).scalars().all()
+            for dc in dup_chats:
+                existing_chat = (
+                    await session.execute(
+                        select(ChatMessage).where(
+                            ChatMessage.lead_id == primary.id,
+                            ChatMessage.content == dc.content,
+                        )
+                    )
+                ).scalars().first()
+                if not existing_chat:
+                    dc.lead_id = primary.id
+                else:
+                    await session.delete(dc)
+
+            # Delete the redundant duplicate lead record
+            await session.delete(dup)
+
+        await session.flush()
+
+
 async def seed_database():
-    """Seed the database with sample leads."""
+    """Seed the database with sample leads idempotently."""
     print("Initializing DB tables...")
     await init_db()
 
     async with async_session_factory() as session:
-        for lead_data in SAMPLE_LEADS:
-            analysis_data = lead_data.pop("analysis", None)
-            tasks_data = lead_data.pop("tasks", [])
-            chats_data = lead_data.pop("chats", [])
+        # First, deduplicate any previously duplicated seed records
+        await cleanup_duplicate_seed_data(session)
 
-            lead = Lead(**lead_data)
-            session.add(lead)
-            await session.flush()
+        for raw_lead in SAMPLE_LEADS:
+            lead_data: dict[str, Any] = dict(raw_lead)
+            analysis_data: dict[str, Any] | None = lead_data.pop("analysis", None)
+            tasks_data: list[dict[str, Any]] = lead_data.pop("tasks", [])
+            chats_data: list[dict[str, Any]] = lead_data.pop("chats", [])
+
+            # Check if lead already exists
+            lead_stmt = select(Lead).where(Lead.customer_name == lead_data["customer_name"])
+            existing_lead = (await session.execute(lead_stmt)).scalars().first()
+
+            if existing_lead:
+                lead = existing_lead
+            else:
+                lead = Lead(**lead_data)
+                session.add(lead)
+                await session.flush()
 
             if analysis_data:
-                analysis = LeadAnalysis(
-                    lead_id=lead.id,
-                    summary=analysis_data["summary"],
-                    customer_intent=analysis_data["customer_intent"],
-                    key_requirements=json.dumps(analysis_data["key_requirements"]),
-                    inferred_requirements=json.dumps(analysis_data["inferred_requirements"]),
-                    objections=json.dumps(analysis_data["objections"]),
-                    missing_info=json.dumps(analysis_data["missing_info"]),
-                    recommended_action=analysis_data["recommended_action"],
-                    suggested_response=analysis_data["suggested_response"],
-                    urgency_signals=json.dumps(analysis_data["urgency_signals"]),
-                    readiness_signals=json.dumps(analysis_data["readiness_signals"]),
-                    scoring_evidence=json.dumps({"intent": 25, "timeline": 28, "clarity": 20, "next_steps": 15}),
-                    score_explanation=analysis_data["score_explanation"],
-                )
-                session.add(analysis)
+                analysis_stmt = select(LeadAnalysis).where(LeadAnalysis.lead_id == lead.id)
+                existing_analysis = (await session.execute(analysis_stmt)).scalars().first()
+                if not existing_analysis:
+                    from app.schemas.analysis import LeadAnalysisResult
+                    from app.services.scoring_service import calculate_score
+
+                    ar = LeadAnalysisResult(
+                        summary=analysis_data["summary"],
+                        customer_intent=analysis_data["customer_intent"],
+                        key_requirements=analysis_data["key_requirements"],
+                        inferred_requirements=analysis_data["inferred_requirements"],
+                        objections=analysis_data["objections"],
+                        missing_info=analysis_data["missing_info"],
+                        recommended_action=analysis_data["recommended_action"],
+                        suggested_response=analysis_data["suggested_response"],
+                        urgency_signals=analysis_data["urgency_signals"],
+                        readiness_signals=analysis_data["readiness_signals"],
+                        hard_constraints=analysis_data.get("hard_constraints", []),
+                    )
+                    score_res = calculate_score(
+                        analysis=ar,
+                        buying_timeline=lead.buying_timeline,
+                        budget=lead.budget,
+                        property_requirement=lead.property_requirement,
+                        customer_message=lead.customer_message,
+                        location=lead.location,
+                    )
+                    evidence_payload = {
+                        "timeline_score": score_res.timeline_score,
+                        "intent_score": score_res.intent_score,
+                        "financial_score": score_res.financial_score,
+                        "clarity_score": score_res.clarity_score,
+                        "qualification_score": score_res.qualification_score,
+                        "next_steps_score": score_res.next_steps_score,
+                        "objection_penalty": score_res.objection_penalty,
+                        "total_score": score_res.total_score,
+                        "category": score_res.category,
+                        "factors": score_res.factors,
+                        "timeline_info": score_res.timeline_info.model_dump() if score_res.timeline_info else None,
+                        "scoring_version": score_res.scoring_version,
+                        "known_features": score_res.known_features,
+                        "unknown_features": score_res.unknown_features,
+                    }
+                    analysis = LeadAnalysis(
+                        lead_id=lead.id,
+                        summary=analysis_data["summary"],
+                        customer_intent=analysis_data["customer_intent"],
+                        key_requirements=json.dumps(analysis_data["key_requirements"]),
+                        inferred_requirements=json.dumps(analysis_data["inferred_requirements"]),
+                        objections=json.dumps(analysis_data["objections"]),
+                        missing_info=json.dumps(analysis_data["missing_info"]),
+                        recommended_action=analysis_data["recommended_action"],
+                        suggested_response=analysis_data["suggested_response"],
+                        urgency_signals=json.dumps(analysis_data["urgency_signals"]),
+                        readiness_signals=json.dumps(analysis_data["readiness_signals"]),
+                        scoring_evidence=json.dumps(evidence_payload),
+                        score_explanation=score_res.explanation,
+                    )
+                    session.add(analysis)
 
             for task_data in tasks_data:
-                task = FollowupTask(lead_id=lead.id, **task_data)
-                session.add(task)
+                task_stmt = select(FollowupTask).where(
+                    FollowupTask.lead_id == lead.id,
+                    FollowupTask.title == task_data["title"],
+                )
+                existing_task = (await session.execute(task_stmt)).scalars().first()
+                if not existing_task:
+                    task = FollowupTask(lead_id=lead.id, **task_data)
+                    session.add(task)
 
             for chat_data in chats_data:
-                chat = ChatMessage(lead_id=lead.id, **chat_data)
-                session.add(chat)
+                chat_stmt = select(ChatMessage).where(
+                    ChatMessage.lead_id == lead.id,
+                    ChatMessage.content == chat_data["content"],
+                )
+                existing_chat = (await session.execute(chat_stmt)).scalars().first()
+                if not existing_chat:
+                    chat = ChatMessage(lead_id=lead.id, **chat_data)
+                    session.add(chat)
 
         await session.commit()
-        print(f"Successfully seeded {len(SAMPLE_LEADS)} leads with analyses, tasks, and chats!")
+        print(f"Successfully processed {len(SAMPLE_LEADS)} sample leads with idempotent seeding!")
 
 
 if __name__ == "__main__":
     asyncio.run(seed_database())
+

@@ -4,7 +4,14 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
-from app.schemas.leads import LeadCreate, LeadUpdate, LeadResponse, LeadDetailResponse
+from app.schemas.leads import (
+    LeadCreate,
+    LeadUpdate,
+    LeadResponse,
+    LeadDetailResponse,
+    InteractionExtractRequest,
+    InteractionExtractResponse,
+)
 from app.schemas.analysis import AnalysisResponse
 from app.services.lead_service import LeadService
 from app.services.agent_service import AgentService
@@ -64,17 +71,22 @@ async def delete_lead(lead_id: str, db: AsyncSession = Depends(get_db)):
 @router.post("/{lead_id}/analyze", response_model=AnalysisResponse)
 async def analyze_lead(lead_id: str, db: AsyncSession = Depends(get_db)):
     """Run or re-run AI analysis on a lead. Returns structured analysis with priority score."""
-    lead_service = LeadService(db)
-    lead_detail = await lead_service.get_lead(lead_id)
+    from app.core.exceptions import NotFoundError
 
-    # Get the ORM model for the agent
     lead_repo = LeadRepository(db)
     lead = await lead_repo.get_by_id(lead_id)
+    if not lead:
+        raise NotFoundError("Lead", lead_id)
 
     agent_service = AgentService(db)
-    analysis_result = await agent_service.analyze_lead(lead)
+    try:
+        analysis_result = await agent_service.analyze_lead(lead)
+    except Exception:
+        await db.rollback()
+        raise
 
     # Save analysis and update score
+    lead_service = LeadService(db)
     return await lead_service.save_analysis(lead_id, analysis_result)
 
 
@@ -91,3 +103,38 @@ async def generate_call_brief(lead_id: str, db: AsyncSession = Depends(get_db)):
     agent_service = AgentService(db)
     brief = await agent_service.generate_call_brief(lead)
     return {"lead_id": lead_id, "call_brief": brief}
+
+
+@router.post("/{lead_id}/extract-interaction", response_model=InteractionExtractResponse)
+async def extract_interaction(
+    lead_id: str,
+    data: InteractionExtractRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Use LeadPilot to extract proposed customer updates from interaction notes."""
+    from app.core.exceptions import NotFoundError
+
+    lead_repo = LeadRepository(db)
+    lead = await lead_repo.get_by_id(lead_id)
+    if not lead:
+        raise NotFoundError("Lead", lead_id)
+
+    agent_service = AgentService(db)
+    return await agent_service.extract_interaction_updates(lead, data.outcome, data.notes)
+
+
+@router.post("/recalculate-scores")
+async def recalculate_all_scores(db: AsyncSession = Depends(get_db)):
+    """Recalculate lead scores for all leads using the deterministic v3.0 formula without re-invoking LLM."""
+    service = LeadService(db)
+    count = await service.recalculate_all_scores()
+    return {"message": f"Successfully recalculated scores for {count} leads", "recalculated_count": count, "scoring_version": "3.0.0"}
+
+
+@router.post("/{lead_id}/recalculate-score", response_model=LeadDetailResponse)
+async def recalculate_lead_score(lead_id: str, db: AsyncSession = Depends(get_db)):
+    """Recalculate single lead score using deterministic v3.0 formula without re-invoking LLM."""
+    service = LeadService(db)
+    return await service.recalculate_lead_score(lead_id)
+
+

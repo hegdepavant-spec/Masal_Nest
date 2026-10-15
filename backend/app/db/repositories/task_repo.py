@@ -54,10 +54,19 @@ class TaskRepository:
         result = await self.db.execute(stmt)
         return {row[0]: row[1] for row in result.all()}
 
-    async def count_overdue(self) -> int:
-        today = date.today()
+    async def count_overdue(self, as_of: date | None = None) -> int:
+        target_date = as_of or date.today()
         stmt = select(func.count(FollowupTask.id)).where(
-            FollowupTask.due_date < today,
+            FollowupTask.due_date < target_date,
+            FollowupTask.status.in_(["pending", "in_progress"]),
+        )
+        result = await self.db.execute(stmt)
+        return result.scalar_one()
+
+    async def count_due_today(self, as_of: date | None = None) -> int:
+        target_date = as_of or date.today()
+        stmt = select(func.count(FollowupTask.id)).where(
+            FollowupTask.due_date == target_date,
             FollowupTask.status.in_(["pending", "in_progress"]),
         )
         result = await self.db.execute(stmt)

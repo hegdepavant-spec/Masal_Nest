@@ -36,3 +36,8 @@ class AnalysisRepository:
         )
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
+
+    async def update(self, analysis: LeadAnalysis) -> LeadAnalysis:
+        await self.db.flush()
+        await self.db.refresh(analysis)
+        return analysis

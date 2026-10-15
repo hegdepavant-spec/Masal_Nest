@@ -25,7 +25,32 @@ class FollowupService:
         if not lead:
             raise NotFoundError("Lead", data.lead_id)
 
+        clean_title = data.title.strip()
+        # Prevent accidental duplicate submissions for the same lead, title, and due_date
+        existing_tasks = await self.task_repo.list_tasks(lead_id=data.lead_id)
+        for t in existing_tasks:
+            if (
+                t.status in ("pending", "in_progress")
+                and t.title.strip().lower() == clean_title.lower()
+                and t.due_date == data.due_date
+            ):
+                return TaskResponse(
+                    id=t.id,
+                    lead_id=t.lead_id,
+                    lead_name=lead.customer_name,
+                    title=t.title,
+                    description=t.description,
+                    action_type=t.action_type,
+                    status=t.status,
+                    due_date=t.due_date,
+                    completed_at=t.completed_at,
+                    created_by=t.created_by,
+                    created_at=t.created_at,
+                    updated_at=t.updated_at,
+                )
+
         task = FollowupTask(**data.model_dump())
+        task.title = clean_title
         task = await self.task_repo.create(task)
 
         # Update lead followup status if it's "new"
@@ -114,9 +139,11 @@ class FollowupService:
         """Get task counts for dashboard."""
         status_counts = await self.task_repo.count_by_status()
         overdue = await self.task_repo.count_overdue()
+        due_today = await self.task_repo.count_due_today()
         return {
             "pending": status_counts.get("pending", 0) + status_counts.get("in_progress", 0),
             "overdue": overdue,
+            "due_today": due_today,
             "completed": status_counts.get("completed", 0),
         }
 

@@ -29,5 +29,6 @@ async def get_dashboard_metrics(db: AsyncSession = Depends(get_db)):
         unscored_leads=category_counts.get("unscored", 0),
         pending_tasks=task_metrics.get("pending", 0),
         overdue_tasks=task_metrics.get("overdue", 0),
+        due_today_tasks=task_metrics.get("due_today", 0),
         completed_tasks=task_metrics.get("completed", 0),
     )

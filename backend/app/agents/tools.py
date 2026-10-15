@@ -126,11 +126,29 @@ async def create_followup_task(
     if action_type not in valid_types:
         action_type = "other"
 
+    clean_title = title.strip()
     due = date.today() + timedelta(days=max(0, days_until_due))
+
+    # Duplicate protection: check if identical incomplete task exists
+    existing_tasks = await task_repo.list_tasks(lead_id=lead_id)
+    for t in existing_tasks:
+        if (
+            t.status in ("pending", "in_progress")
+            and t.title.strip().lower() == clean_title.lower()
+            and t.due_date == due
+        ):
+            return {
+                "task_id": t.id,
+                "title": t.title,
+                "action_type": t.action_type,
+                "due_date": str(t.due_date),
+                "status": t.status,
+                "message": f"Task '{clean_title}' is already scheduled for {lead.customer_name} (due {t.due_date}).",
+            }
 
     task = FollowupTask(
         lead_id=lead_id,
-        title=title,
+        title=clean_title,
         description=description,
         action_type=action_type,
         due_date=due,
@@ -146,10 +164,12 @@ async def create_followup_task(
     return {
         "task_id": task.id,
         "title": task.title,
+        "lead_id": lead.id,
+        "lead_name": lead.customer_name,
         "action_type": task.action_type,
         "due_date": str(task.due_date),
         "status": task.status,
-        "message": f"Task '{title}' created successfully, due {task.due_date}",
+        "message": f"Task '{clean_title}' created successfully for {lead.customer_name}, due {task.due_date}",
     }
 
 
@@ -222,4 +242,97 @@ async def update_task_status(
         "status": task.status,
         "completed_at": str(task.completed_at) if task.completed_at else None,
         "message": f"Task '{task.title}' status updated to {new_status}",
+    }
+
+
+async def reschedule_task(
+    task_id: str,
+    days_from_now: int = 1,
+    new_due_date: str = "",
+) -> dict:
+    """Reschedule an existing follow-up task to a new due date.
+
+    Args:
+        task_id: The UUID of the task to reschedule.
+        days_from_now: Number of days from today for the new due date (default 1).
+        new_due_date: Optional explicit ISO date string (YYYY-MM-DD). If provided, overrides days_from_now.
+
+    Returns:
+        The updated task details.
+    """
+    db = _get_db()
+    task_repo = TaskRepository(db)
+
+    task = await task_repo.get_by_id(task_id)
+    if not task:
+        return {"error": f"Task {task_id} not found"}
+
+    if new_due_date and new_due_date.strip():
+        try:
+            target_date = date.fromisoformat(new_due_date.strip())
+        except ValueError:
+            target_date = date.today() + timedelta(days=max(0, days_from_now))
+    else:
+        target_date = date.today() + timedelta(days=max(0, days_from_now))
+
+    task.due_date = target_date
+    if task.status == "completed":
+        task.status = "pending"
+        task.completed_at = None
+
+    task = await task_repo.update(task)
+
+    return {
+        "task_id": task.id,
+        "title": task.title,
+        "due_date": str(task.due_date),
+        "status": task.status,
+        "message": f"Task '{task.title}' rescheduled to {task.due_date}",
+    }
+
+
+async def resolve_lead(name_query: str) -> dict:
+    """Find and resolve a customer lead by name or query keyword.
+
+    Args:
+        name_query: Customer name or keyword to search for (e.g. 'Shobha', 'Arjun').
+
+    Returns:
+        A dictionary with the resolved lead details or a list if ambiguous.
+    """
+    db = _get_db()
+    lead_repo = LeadRepository(db)
+
+    leads = await lead_repo.list_leads(search=name_query.strip())
+    if not leads:
+        return {
+            "resolved": False,
+            "error": f"No customer lead found matching '{name_query}'.",
+        }
+
+    if len(leads) == 1:
+        lead = leads[0]
+        return {
+            "resolved": True,
+            "lead_id": lead.id,
+            "customer_name": lead.customer_name,
+            "location": lead.location,
+            "property_requirement": lead.property_requirement,
+            "priority_category": lead.priority_category,
+        }
+
+    # Multiple leads found — ambiguous!
+    return {
+        "resolved": False,
+        "ambiguous": True,
+        "message": f"Multiple leads found matching '{name_query}'. Ask the salesperson to clarify which customer they mean.",
+        "matches": [
+            {
+                "lead_id": l.id,
+                "customer_name": l.customer_name,
+                "location": l.location,
+                "property_requirement": l.property_requirement,
+            }
+            for l in leads[:5]
+        ],
     }
