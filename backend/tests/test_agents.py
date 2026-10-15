@@ -158,3 +158,104 @@ async def test_live_groq_real_call():
     assert result.summary != ""
     assert result.customer_intent in ["buying", "renting", "investing", "selling", "browsing"]
     assert len(result.key_requirements) > 0
+
+
+def test_handle_ai_error_timeout_mapping():
+    """Verify _handle_ai_error maps asyncio.TimeoutError and TimeoutError to AITimeoutError."""
+    import asyncio
+    from app.core.exceptions import AITimeoutError
+    from app.services.agent_service import AgentService
+
+    service = AgentService(db=None)
+
+    with pytest.raises(AITimeoutError):
+        service._handle_ai_error(asyncio.TimeoutError())
+
+    with pytest.raises(AITimeoutError):
+        service._handle_ai_error(TimeoutError("Socket read timed out"))
+
+    with pytest.raises(AITimeoutError):
+        service._handle_ai_error(Exception("Client network connection timed out"))
+
+
+@pytest.mark.asyncio
+async def test_analyze_lead_preflight_missing_key(monkeypatch):
+    """Verify analyze_lead raises AIAuthError immediately without invoking network when key is missing."""
+    from app.core.exceptions import AIAuthError
+    from app.db.models import Lead
+    from app.services.agent_service import AgentService
+
+    lead = Lead(id="test-lead-preflight", customer_name="No Key Lead")
+    service = AgentService(db=None)
+    monkeypatch.setattr(service.settings, "groq_api_key", "")
+
+    with pytest.raises(AIAuthError):
+        await service.analyze_lead(lead)
+
+    monkeypatch.setattr(service.settings, "groq_api_key", "your-groq-api-key-here")
+    with pytest.raises(AIAuthError):
+        await service.analyze_lead(lead)
+
+
+def test_cors_origins_parsing_flexibility():
+    """Verify Settings parses JSON array, comma-separated strings, and strips trailing slashes."""
+    from app.core.config import Settings
+
+    s1 = Settings(cors_origins='["https://masal-nest.vercel.app/"]')
+    assert s1.cors_origins == ["https://masal-nest.vercel.app"]
+
+    s2 = Settings(cors_origins="https://masal-nest.vercel.app/, http://localhost:5173")
+    assert s2.cors_origins == ["https://masal-nest.vercel.app", "http://localhost:5173"]
+
+    s3 = Settings(cors_origins=["https://masal-nest.vercel.app/"])
+    assert s3.cors_origins == ["https://masal-nest.vercel.app"]
+
+
+def test_obsolete_groq_model_fallback():
+    """Verify that obsolete llama-4-scout safely falls back to openai/gpt-oss-120b."""
+    from app.core.config import Settings
+
+    s = Settings(groq_model_name="meta-llama/llama-4-scout-17b-16e-instruct")
+    assert s.resolved_groq_model == "groq/openai/gpt-oss-120b"
+
+
+@pytest.mark.asyncio
+async def test_bounded_timeout_in_run_agent(monkeypatch):
+    """Verify that _run_agent enforces bounded timeout via asyncio.wait_for and raises AITimeoutError."""
+    import asyncio
+    from unittest.mock import MagicMock
+    from app.core.exceptions import AITimeoutError
+    from app.services.agent_service import AgentService
+
+    service = AgentService(db=None)
+    # Set timeout very low for fast testing
+    monkeypatch.setattr(service.settings, "groq_timeout_seconds", 0.05)
+
+    mock_agent = MagicMock()
+    mock_agent.name = "mock_agent"
+
+    # Mock runner.run_async to simulate a hanging async generator
+    class HangingRunner:
+        def __init__(self, **kwargs):
+            pass
+
+        async def run_async(self, **kwargs):
+            await asyncio.sleep(0.5)  # Hangs beyond 0.05s timeout
+            yield MagicMock()
+
+    class MockSessionService:
+        async def create_session(self, **kwargs):
+            session = MagicMock()
+            session.id = "session-123"
+            return session
+
+    monkeypatch.setattr("google.adk.runners.Runner", HangingRunner)
+    monkeypatch.setattr("google.adk.sessions.InMemorySessionService", MockSessionService)
+
+    with pytest.raises(AITimeoutError):
+        await service._run_agent(
+            agent=mock_agent,
+            user_message="Analyze",
+            session_prefix="test",
+        )
+

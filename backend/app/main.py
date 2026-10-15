@@ -42,8 +42,17 @@ app = FastAPI(
 
 # CORS Middleware
 origins = list(settings.cors_origins)
+default_origins = [
+    "https://masal-nest.vercel.app",
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:3000",
+]
 if "*" not in origins:
-    origins.extend(["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173", "http://127.0.0.1:3000"])
+    for default_origin in default_origins:
+        if default_origin not in origins:
+            origins.append(default_origin)
 
 app.add_middleware(
     CORSMiddleware,

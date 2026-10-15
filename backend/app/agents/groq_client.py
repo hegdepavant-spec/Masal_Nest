@@ -110,6 +110,10 @@ class GroqLiteLLMClient(LiteLLMClient):
         """Sanitize messages and safely invoke async acompletion."""
         sanitized_messages = sanitize_messages_for_groq(messages)
 
+        if "timeout" not in kwargs or kwargs["timeout"] is None:
+            from app.core.config import get_settings
+            kwargs["timeout"] = float(get_settings().groq_timeout_seconds)
+
         if logger.isEnabledFor(logging.DEBUG):
             summary = [
                 f"[{i}] role={m.get('role')}, keys={list(m.keys())}"
@@ -117,9 +121,10 @@ class GroqLiteLLMClient(LiteLLMClient):
                 if isinstance(m, dict)
             ]
             logger.debug(
-                "Dispatching to Groq model=%s with %d messages: %s",
+                "Dispatching to Groq model=%s with %d messages (timeout=%s): %s",
                 model,
                 len(sanitized_messages),
+                kwargs.get("timeout"),
                 ", ".join(summary),
             )
 
@@ -140,6 +145,9 @@ class GroqLiteLLMClient(LiteLLMClient):
     ) -> Union[ModelResponse, CustomStreamWrapper]:
         """Sanitize messages and safely invoke sync completion."""
         sanitized_messages = sanitize_messages_for_groq(messages)
+        if "timeout" not in kwargs or kwargs["timeout"] is None:
+            from app.core.config import get_settings
+            kwargs["timeout"] = float(get_settings().groq_timeout_seconds)
         return super().completion(
             model=model,
             messages=sanitized_messages,

@@ -54,6 +54,19 @@ class AgentService:
         Raises:
             AIServiceError on any AI failure.
         """
+        # Pre-flight check: ensure API key is configured before heavy execution
+        if not self.settings.groq_api_key or self.settings.groq_api_key.startswith("your-groq-api-key"):
+            logger.error("AI analysis aborted: GROQ_API_KEY is not configured or is a placeholder.")
+            raise AIAuthError()
+
+        logger.info(
+            "Starting AI lead analysis: lead_id=%s, customer='%s', model=%s, timeout=%ds",
+            lead.id,
+            lead.customer_name,
+            self.settings.resolved_groq_model,
+            self.settings.groq_timeout_seconds,
+        )
+
         # Lazy import — only loaded when AI analysis is actually requested
         from app.agents.prompts import LEAD_INTELLIGENCE_INSTRUCTION
 
@@ -97,6 +110,11 @@ class AgentService:
         Returns:
             The assistant's response text.
         """
+        # Pre-flight check
+        if not self.settings.groq_api_key or self.settings.groq_api_key.startswith("your-groq-api-key"):
+            logger.error("AI chat aborted: GROQ_API_KEY is not configured or is a placeholder.")
+            raise AIAuthError()
+
         # Lazy import — only loaded when chat is actually invoked
         from app.agents.prompts import SALES_FOLLOWUP_INSTRUCTION
         from app.agents import tools as agent_tools
@@ -137,6 +155,11 @@ class AgentService:
         Uses the Lead Intelligence Agent (no tools needed) with
         the call brief prompt template.
         """
+        # Pre-flight check
+        if not self.settings.groq_api_key or self.settings.groq_api_key.startswith("your-groq-api-key"):
+            logger.error("Call brief aborted: GROQ_API_KEY is not configured or is a placeholder.")
+            raise AIAuthError()
+
         # Lazy import — only loaded when a brief is actually requested
         from app.agents.prompts import CALL_BRIEF_INSTRUCTION
 
@@ -178,6 +201,10 @@ class AgentService:
         notes: str,
     ):
         """Extract proposed customer updates and suggested next task from interaction notes."""
+        if not self.settings.groq_api_key or self.settings.groq_api_key.startswith("your-groq-api-key"):
+            logger.error("Interaction extraction aborted: GROQ_API_KEY is not configured or is a placeholder.")
+            raise AIAuthError()
+
         from litellm import acompletion
         from app.schemas.leads import InteractionExtractResponse
         from app.agents.prompts import INTERACTION_EXTRACTION_PROMPT
@@ -198,6 +225,7 @@ class AgentService:
             {"role": "user", "content": prompt},
         ]
 
+        timeout_sec = float(self.settings.groq_timeout_seconds)
         try:
             response = await acompletion(
                 model=self.settings.resolved_groq_model,
@@ -206,6 +234,8 @@ class AgentService:
                 api_key=self.settings.groq_api_key,
                 custom_llm_provider="groq",
                 response_format={"type": "json_object"},
+                timeout=timeout_sec,
+                num_retries=self.settings.groq_max_retries,
             )
             raw_text = response.choices[0].message.content or ""
         except Exception as e:
@@ -233,7 +263,6 @@ class AgentService:
             logger.error("Extracted interaction data failed validation: %s", str(e)[:200])
             raise AIServiceError("Extracted data did not match expected format.", code="AI_INVALID_OUTPUT")
 
-
     async def _run_agent(
         self,
         agent: "LlmAgent",
@@ -245,7 +274,12 @@ class AgentService:
         Uses ephemeral InMemorySessionService — each invocation is independent.
         Correctly distinguishes tool-call events, tool results, intermediate assistant
         events, and the completed final assistant response.
+        Enforces a strict bounded timeout using asyncio.wait_for to prevent indefinite hangs.
         """
+        import asyncio
+        import time
+        start_time = time.time()
+
         # Lazy imports — only executed when an agent is actually run
         from google.adk.runners import Runner
         from google.adk.sessions import InMemorySessionService
@@ -261,6 +295,14 @@ class AgentService:
 
         user_id = "masal-ai-backend"
         session_id = f"{session_prefix}-{uuid.uuid4().hex[:8]}"
+        timeout_seconds = float(self.settings.groq_timeout_seconds)
+
+        logger.info(
+            "Executing ADK agent '%s' for session '%s' (timeout=%.1fs)...",
+            agent.name,
+            session_id,
+            timeout_seconds,
+        )
 
         # Create session
         session = await session_service.create_session(
@@ -275,8 +317,9 @@ class AgentService:
         )
 
         # Run the agent and collect only completed final responses
-        final_text_parts = []
-        try:
+        final_text_parts: list[str] = []
+
+        async def _consume_runner() -> None:
             async for event in runner.run_async(
                 user_id=user_id,
                 session_id=session.id,
@@ -299,9 +342,22 @@ class AgentService:
                         if part.text:
                             final_text_parts.append(part.text)
 
+        try:
+            # Enforce strict bounded timeout safely under Render's 100s proxy limit
+            await asyncio.wait_for(_consume_runner(), timeout=timeout_seconds)
         except Exception as e:
-            logger.exception("AI agent execution failed: %s", e)
+            elapsed = time.time() - start_time
+            logger.error("ADK agent '%s' failed after %.2fs: %s", agent.name, elapsed, e)
             self._handle_ai_error(e)
+
+        elapsed = time.time() - start_time
+        logger.info(
+            "ADK agent '%s' completed successfully in %.2fs (session=%s, parts=%d)",
+            agent.name,
+            elapsed,
+            session_id,
+            len(final_text_parts),
+        )
 
         if not final_text_parts:
             raise AIServiceError("AI agent returned no response.")
@@ -354,15 +410,23 @@ class AgentService:
 
     def _handle_ai_error(self, error: Exception) -> None:
         """Map provider errors to application exceptions."""
-        error_str = str(error).lower()
+        import asyncio
 
-        if "timeout" in error_str or "timed out" in error_str:
+        # Explicit timeout detection for asyncio.TimeoutError and standard TimeoutError
+        if isinstance(error, (asyncio.TimeoutError, TimeoutError)):
+            logger.warning("AI operation timed out.")
+            raise AITimeoutError()
+
+        error_str = str(error).lower()
+        error_type = type(error).__name__.lower()
+
+        if "timeout" in error_str or "timed out" in error_str or "timeout" in error_type:
             raise AITimeoutError()
         elif "rate" in error_str and "limit" in error_str:
             raise AIRateLimitError()
         elif "auth" in error_str or "api key" in error_str or "401" in error_str or "invalid_api_key" in error_str:
             raise AIAuthError()
-        elif "model" in error_str and ("not found" in error_str or "not available" in error_str):
+        elif "model" in error_str and ("not found" in error_str or "not available" in error_str or "does not exist" in error_str):
             raise AIServiceError(
                 "Configured AI model is not available. Check GROQ_MODEL_NAME setting.",
                 code="AI_MODEL_UNAVAILABLE",

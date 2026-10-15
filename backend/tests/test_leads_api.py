@@ -177,6 +177,44 @@ async def test_analyze_lead_ai_failure_safe_rollback(client: AsyncClient, monkey
     assert detail_res.status_code == 200
     detail = detail_res.json()
     assert detail["priority_score"] is None
+
+
+@pytest.mark.asyncio
+async def test_analyze_lead_ai_timeout_returns_controlled_error_and_cors(client: AsyncClient, monkeypatch):
+    """Test that AI provider timeout returns controlled 502 with AI_TIMEOUT, CORS headers, and safe rollback."""
+    from app.core.exceptions import AITimeoutError
+    from app.services.agent_service import AgentService
+
+    create_res = await client.post(
+        "/api/v1/leads",
+        json={"customer_name": "Timeout Lead", "budget": "₹2 Cr"},
+    )
+    assert create_res.status_code == 201
+    lead_id = create_res.json()["id"]
+
+    async def mock_timeout(self, lead):
+        raise AITimeoutError()
+
+    monkeypatch.setattr(AgentService, "analyze_lead", mock_timeout)
+
+    res = await client.post(
+        f"/api/v1/leads/{lead_id}/analyze",
+        headers={"Origin": "https://masal-nest.vercel.app"},
+    )
+    assert res.status_code == 502
+    assert res.headers.get("access-control-allow-origin") == "https://masal-nest.vercel.app"
+    data = res.json()
+    assert "error" in data
+    assert data["error"]["code"] == "AI_TIMEOUT"
+    assert "timed out" in data["error"]["message"].lower()
+
+    # Ensure lead was NOT updated with analysis and DB is intact
+    detail_res = await client.get(f"/api/v1/leads/{lead_id}")
+    assert detail_res.status_code == 200
+    detail = detail_res.json()
+    assert detail["priority_score"] is None
+
+
 @pytest.mark.asyncio
 async def test_analyze_lead_not_found(client: AsyncClient):
     """Test analyze on a non-existent lead returns 404."""

@@ -44,6 +44,8 @@ def create_sales_followup_agent():
         model=LiteLlm(
             model=model_name,
             api_key=settings.groq_api_key,
+            timeout=float(settings.groq_timeout_seconds),
+            num_retries=settings.groq_max_retries,
             llm_client=GroqLiteLLMClient(),
         ),
         instruction=SALES_FOLLOWUP_INSTRUCTION,
