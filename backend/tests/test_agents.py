@@ -259,3 +259,75 @@ async def test_bounded_timeout_in_run_agent(monkeypatch):
             session_prefix="test",
         )
 
+
+@pytest.mark.asyncio
+async def test_cancellation_propagation_in_run_agent(monkeypatch):
+    """Verify that external cancellation cleanly raises asyncio.CancelledError and propagates."""
+    import asyncio
+    from unittest.mock import MagicMock
+    from app.services.agent_service import AgentService
+
+    service = AgentService(db=None)
+    mock_agent = MagicMock()
+    mock_agent.name = "mock_agent"
+
+    class LongRunningRunner:
+        def __init__(self, **kwargs):
+            pass
+
+        async def run_async(self, **kwargs):
+            await asyncio.sleep(10.0)
+            yield MagicMock()
+
+    class MockSessionService:
+        async def create_session(self, **kwargs):
+            session = MagicMock()
+            session.id = "session-123"
+            return session
+
+    monkeypatch.setattr("google.adk.runners.Runner", LongRunningRunner)
+    monkeypatch.setattr("google.adk.sessions.InMemorySessionService", MockSessionService)
+
+    task = asyncio.create_task(
+        service._run_agent(
+            agent=mock_agent,
+            user_message="Analyze",
+            session_prefix="test",
+        )
+    )
+    await asyncio.sleep(0.05)
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+
+@pytest.mark.asyncio
+async def test_groq_client_bounds_retries_on_long_timeout(monkeypatch):
+    """Verify that GroqLiteLLMClient sets num_retries=0 if per-call timeout consumes >50% of total deadline."""
+    from unittest.mock import MagicMock
+    from app.agents.groq_client import GroqLiteLLMClient
+
+    client = GroqLiteLLMClient()
+    captured_kwargs = {}
+
+    async def mock_super_acompletion(*args, **kwargs):
+        captured_kwargs.update(kwargs)
+        mock_resp = MagicMock()
+        return mock_resp
+
+    from google.adk.models.lite_llm import LiteLLMClient
+    monkeypatch.setattr(LiteLLMClient, "acompletion", mock_super_acompletion)
+
+    # When timeout is 30s and retries requested is 2, client should bound retries to 0
+    await client.acompletion(
+        model="groq/openai/gpt-oss-120b",
+        messages=[{"role": "user", "content": "hi"}],
+        timeout=30.0,
+        num_retries=2,
+    )
+
+    assert captured_kwargs["num_retries"] == 0
+    assert captured_kwargs["timeout"] == 30.0
+
+

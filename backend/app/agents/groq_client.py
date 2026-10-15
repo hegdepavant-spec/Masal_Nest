@@ -97,6 +97,12 @@ def redact_sensitive_info(data: Any) -> Any:
     return data
 
 
+import litellm
+# Disable litellm background telemetry and unnecessary overhead for memory conservation
+litellm.telemetry = False
+litellm.turn_off_message_logging = True
+
+
 class GroqLiteLLMClient(LiteLLMClient):
     """Specialized LiteLLMClient that ensures Groq API message compatibility."""
 
@@ -107,33 +113,56 @@ class GroqLiteLLMClient(LiteLLMClient):
         tools: Any = None,
         **kwargs: Any,
     ) -> Union[ModelResponse, CustomStreamWrapper]:
-        """Sanitize messages and safely invoke async acompletion."""
+        """Sanitize messages, apply bounded timeouts and retries, and safely invoke async acompletion."""
+        import time
+
         sanitized_messages = sanitize_messages_for_groq(messages)
 
+        from app.core.config import get_settings
+        settings = get_settings()
+
         if "timeout" not in kwargs or kwargs["timeout"] is None:
-            from app.core.config import get_settings
-            kwargs["timeout"] = float(get_settings().groq_timeout_seconds)
+            kwargs["timeout"] = float(settings.groq_timeout_seconds)
 
-        if logger.isEnabledFor(logging.DEBUG):
-            summary = [
-                f"[{i}] role={m.get('role')}, keys={list(m.keys())}"
-                for i, m in enumerate(sanitized_messages)
-                if isinstance(m, dict)
-            ]
-            logger.debug(
-                "Dispatching to Groq model=%s with %d messages (timeout=%s): %s",
-                model,
-                len(sanitized_messages),
-                kwargs.get("timeout"),
-                ", ".join(summary),
-            )
+        # Enforce bounded retries to prevent exceeding outer deadline
+        if "num_retries" not in kwargs or kwargs["num_retries"] is None:
+            kwargs["num_retries"] = settings.groq_max_retries
+        if kwargs.get("num_retries", 0) > 0 and kwargs.get("timeout", 0) >= float(settings.groq_timeout_seconds) * 0.5:
+            # If per-call timeout consumes >50% of total deadline, do not retry
+            kwargs["num_retries"] = 0
 
-        return await super().acompletion(
-            model=model,
-            messages=sanitized_messages,
-            tools=tools,
-            **kwargs,
+        timeout_val = kwargs.get("timeout", 0.0)
+        retries_val = kwargs.get("num_retries", 0)
+
+        logger.info(
+            "Dispatching Groq model call: model=%s, messages=%d, timeout=%.1fs, retries=%d",
+            model,
+            len(sanitized_messages) if isinstance(sanitized_messages, list) else 0,
+            float(timeout_val),
+            retries_val,
         )
+
+        call_start = time.time()
+        try:
+            response = await super().acompletion(
+                model=model,
+                messages=sanitized_messages,
+                tools=tools,
+                **kwargs,
+            )
+            elapsed = time.time() - call_start
+            logger.info("Groq model call succeeded in %.2fs: model=%s", elapsed, model)
+            return response
+        except Exception as e:
+            elapsed = time.time() - call_start
+            safe_err = redact_sensitive_info(str(e))
+            logger.warning(
+                "Groq model call failed after %.2fs: model=%s, error=%s",
+                elapsed,
+                model,
+                safe_err[:200],
+            )
+            raise
 
     def completion(
         self,
@@ -144,14 +173,40 @@ class GroqLiteLLMClient(LiteLLMClient):
         **kwargs: Any,
     ) -> Union[ModelResponse, CustomStreamWrapper]:
         """Sanitize messages and safely invoke sync completion."""
+        import time
+
         sanitized_messages = sanitize_messages_for_groq(messages)
+
+        from app.core.config import get_settings
+        settings = get_settings()
+
         if "timeout" not in kwargs or kwargs["timeout"] is None:
-            from app.core.config import get_settings
-            kwargs["timeout"] = float(get_settings().groq_timeout_seconds)
-        return super().completion(
-            model=model,
-            messages=sanitized_messages,
-            tools=tools,
-            stream=stream,
-            **kwargs,
-        )
+            kwargs["timeout"] = float(settings.groq_timeout_seconds)
+
+        if "num_retries" not in kwargs or kwargs["num_retries"] is None:
+            kwargs["num_retries"] = settings.groq_max_retries
+        if kwargs.get("num_retries", 0) > 0 and kwargs.get("timeout", 0) >= float(settings.groq_timeout_seconds) * 0.5:
+            kwargs["num_retries"] = 0
+
+        call_start = time.time()
+        try:
+            response = super().completion(
+                model=model,
+                messages=sanitized_messages,
+                tools=tools,
+                stream=stream,
+                **kwargs,
+            )
+            elapsed = time.time() - call_start
+            logger.info("Groq sync model call succeeded in %.2fs: model=%s", elapsed, model)
+            return response
+        except Exception as e:
+            elapsed = time.time() - call_start
+            safe_err = redact_sensitive_info(str(e))
+            logger.warning(
+                "Groq sync model call failed after %.2fs: model=%s, error=%s",
+                elapsed,
+                model,
+                safe_err[:200],
+            )
+            raise

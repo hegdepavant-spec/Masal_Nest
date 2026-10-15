@@ -106,7 +106,7 @@ In the Render dashboard → **Environment** tab, add these variables:
 |-----------------------|--------------------------------------------------------|
 | `DATABASE_URL`        | Your Neon connection string (from step 2)              |
 | `GROQ_API_KEY`        | Your Groq API key                                      |
-| `GROQ_MODEL_NAME`     | `meta-llama/llama-4-scout-17b-16e-instruct` (or your preferred model) |
+| `GROQ_MODEL_NAME`     | `openai/gpt-oss-120b` (supported Groq model)           |
 | `CORS_ORIGINS`        | `["https://your-app.vercel.app"]`                      |
 | `DEBUG`               | `False`                                                |
 | `PYTHON_VERSION`      | `3.12.0` (optional, ensures consistent runtime)        |

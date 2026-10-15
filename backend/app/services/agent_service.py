@@ -85,14 +85,17 @@ class AgentService:
         # Override instruction with filled template
         agent.instruction = instruction
 
-        response_text = await self._run_agent(
-            agent=agent,
-            user_message="Analyze this lead and provide the structured JSON output.",
-            session_prefix="analysis",
-        )
-
-        # Parse the JSON response
-        return self._parse_analysis_response(response_text)
+        try:
+            response_text = await self._run_agent(
+                agent=agent,
+                user_message="Analyze this lead and provide the structured JSON output.",
+                session_prefix="analysis",
+            )
+            # Parse the JSON response
+            return self._parse_analysis_response(response_text)
+        finally:
+            import gc
+            gc.collect()
 
     async def chat_with_lead_context(
         self,
@@ -304,22 +307,20 @@ class AgentService:
             timeout_seconds,
         )
 
-        # Create session
-        session = await session_service.create_session(
-            app_name=agent.name,
-            user_id=user_id,
-        )
-
         # Build the user message content
         content = types.Content(
             role="user",
             parts=[types.Part(text=user_message)],
         )
 
-        # Run the agent and collect only completed final responses
         final_text_parts: list[str] = []
 
-        async def _consume_runner() -> None:
+        async def _execute_runner() -> None:
+            # Create session inside timeout bound
+            session = await session_service.create_session(
+                app_name=agent.name,
+                user_id=user_id,
+            )
             async for event in runner.run_async(
                 user_id=user_id,
                 session_id=session.id,
@@ -344,11 +345,38 @@ class AgentService:
 
         try:
             # Enforce strict bounded timeout safely under Render's 100s proxy limit
-            await asyncio.wait_for(_consume_runner(), timeout=timeout_seconds)
+            await asyncio.wait_for(_execute_runner(), timeout=timeout_seconds)
+        except (asyncio.TimeoutError, TimeoutError) as e:
+            elapsed = time.time() - start_time
+            logger.warning(
+                "ADK agent '%s' timed out after %.2fs (session=%s, deadline=%.1fs): %s",
+                agent.name,
+                elapsed,
+                session_id,
+                timeout_seconds,
+                e,
+            )
+            raise AITimeoutError()
+        except asyncio.CancelledError:
+            elapsed = time.time() - start_time
+            logger.warning(
+                "ADK agent '%s' execution was cancelled after %.2fs (session=%s)",
+                agent.name,
+                elapsed,
+                session_id,
+            )
+            raise
         except Exception as e:
             elapsed = time.time() - start_time
-            logger.error("ADK agent '%s' failed after %.2fs: %s", agent.name, elapsed, e)
+            logger.error(
+                "ADK agent '%s' failed after %.2fs (session=%s): %s",
+                agent.name,
+                elapsed,
+                session_id,
+                e,
+            )
             self._handle_ai_error(e)
+            raise
 
         elapsed = time.time() - start_time
         logger.info(

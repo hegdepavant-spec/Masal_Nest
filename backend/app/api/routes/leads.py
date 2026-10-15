@@ -17,6 +17,11 @@ from app.services.lead_service import LeadService
 from app.services.agent_service import AgentService
 from app.db.repositories.lead_repo import LeadRepository
 
+import logging
+import time
+
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/leads", tags=["leads"])
 
 
@@ -72,22 +77,38 @@ async def delete_lead(lead_id: str, db: AsyncSession = Depends(get_db)):
 async def analyze_lead(lead_id: str, db: AsyncSession = Depends(get_db)):
     """Run or re-run AI analysis on a lead. Returns structured analysis with priority score."""
     from app.core.exceptions import NotFoundError
+    req_start = time.time()
 
     lead_repo = LeadRepository(db)
     lead = await lead_repo.get_by_id(lead_id)
     if not lead:
         raise NotFoundError("Lead", lead_id)
 
+    logger.info("Incoming analyze request for lead_id=%s, customer='%s'", lead_id, lead.customer_name)
+
     agent_service = AgentService(db)
     try:
         analysis_result = await agent_service.analyze_lead(lead)
-    except Exception:
+    except Exception as e:
+        elapsed = time.time() - req_start
+        logger.error(
+            "AI lead analysis failed for lead_id=%s after %.2fs: %s",
+            lead_id, elapsed, e,
+        )
         await db.rollback()
         raise
 
     # Save analysis and update score
     lead_service = LeadService(db)
-    return await lead_service.save_analysis(lead_id, analysis_result)
+    response = await lead_service.save_analysis(lead_id, analysis_result)
+    elapsed = time.time() - req_start
+    logger.info(
+        "AI lead analysis request completed successfully for lead_id=%s in %.2fs (score=%s)",
+        lead_id,
+        elapsed,
+        response.score_breakdown.total_score if response.score_breakdown else "N/A",
+    )
+    return response
 
 
 @router.post("/{lead_id}/brief")

@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     groq_model_name: str = "openai/gpt-oss-120b"
     groq_timeout_seconds: int = 30
-    groq_max_retries: int = 2
+    groq_max_retries: int = 0
 
     # Scoring thresholds
     score_hot_threshold: int = 70
