@@ -28,6 +28,26 @@ class Settings(BaseSettings):
     score_warm_threshold: int = 40
 
     @property
+    def resolved_database_url(self) -> str:
+        """Normalize DATABASE_URL for SQLAlchemy's async engine.
+
+        Handles common provider URL schemes:
+        - postgres://       → postgresql+asyncpg://
+        - postgresql://     → postgresql+asyncpg://
+        - postgresql+asyncpg:// already correct, pass through
+        - sqlite+aiosqlite:// pass through
+        """
+        url = self.database_url.strip()
+        if url.startswith("postgres://"):
+            return url.replace("postgres://", "postgresql+asyncpg://", 1)
+        if url.startswith("postgresql://"):
+            return url.replace("postgresql://", "postgresql+asyncpg://", 1)
+        if url.startswith("postgresql+asyncpg://"):
+            return url
+        # SQLite and other URLs pass through unchanged
+        return url
+
+    @property
     def resolved_groq_model(self) -> str:
         """Return the LiteLLM model string prefixed with groq/ to guarantee routing to Groq."""
         name = self.groq_model_name.strip() if self.groq_model_name else "openai/gpt-oss-120b"
